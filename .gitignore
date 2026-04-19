@@ -4,6 +4,7 @@ __pycache__/
 .env
 output/
 *.log
+!data/access.log
 .DS_Store
 .venv/
 .idea/
