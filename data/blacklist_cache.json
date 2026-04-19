@@ -1,0 +1,18 @@
+{
+  "45.33.32.156": {
+    "ipAddress": "45.33.32.156",
+    "abuseConfidenceScore": 97,
+    "countryCode": "US",
+    "usageType": "Data Center/Web Hosting/Transit",
+    "isp": "Linode LLC",
+    "totalReports": 843
+  },
+  "1.2.3.4": {
+    "ipAddress": "1.2.3.4",
+    "abuseConfidenceScore": 88,
+    "countryCode": "CN",
+    "usageType": "Fixed Line ISP",
+    "isp": "APNIC & Cloudflare DNS Resolver",
+    "totalReports": 210
+  }
+}
