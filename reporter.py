@@ -1,10 +1,6 @@
-"""
-Report generation and visualization.
-"""
-
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib.dates as mdates
@@ -14,10 +10,6 @@ log = logging.getLogger(__name__)
 
 
 def generate_report(alerts: list[dict], path: str) -> None:
-    """
-    Write alerts to a JSON file.
-    Includes a summary block at the top for quick triage.
-    """
     severity_order = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
     sorted_alerts = sorted(
         alerts,
@@ -26,7 +18,7 @@ def generate_report(alerts: list[dict], path: str) -> None:
     )
 
     summary = {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_alerts": len(alerts),
         "by_severity": {
             s: sum(1 for a in alerts if a.get("severity") == s)
@@ -44,10 +36,6 @@ def generate_report(alerts: list[dict], path: str) -> None:
 
 
 def plot_activity(buckets: dict, path: str) -> None:
-    """
-    Plot requests per minute over the log window.
-    Saves a PNG to the given path.
-    """
     if not buckets:
         log.warning("No time bucket data to plot.")
         return

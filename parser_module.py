@@ -1,10 +1,3 @@
-"""
-Log parser for Apache Combined Log Format.
-
-Example line:
-  192.168.1.10 - - [10/Oct/2025:13:55:36 +0000] "POST /login HTTP/1.1" 401 512
-"""
-
 import re
 import logging
 from datetime import datetime
@@ -29,7 +22,6 @@ _TIME_FORMAT = "%d/%b/%Y:%H:%M:%S %z"
 
 
 def _parse_line(line: str) -> dict | None:
-    """Parse a single log line. Returns None if the line doesn't match."""
     match = _LOG_PATTERN.match(line.strip())
     if not match:
         return None
@@ -47,11 +39,6 @@ def _parse_line(line: str) -> dict | None:
 
 
 def load_logs(path: str) -> list[dict]:
-    """
-    Read and parse a log file. Skips malformed lines silently.
-
-    Returns a list of parsed log entries (dicts).
-    """
     file_path = Path(path)
     if not file_path.exists():
         log.error(f"Log file not found: {path}")

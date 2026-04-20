@@ -1,10 +1,3 @@
-"""
-Detection rules for SOC log analysis.
-
-Each detect_* function is independent and returns a list of alert dicts.
-run_detections() orchestrates all rules and applies correlation.
-"""
-
 import logging
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -20,17 +13,7 @@ from config import (
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Detection rules
-# ---------------------------------------------------------------------------
-
 def detect_bruteforce(logs: list[dict]) -> list[dict]:
-    """
-    Flag IPs with repeated 401 responses within the log window.
-
-    Why it matters: repeated login failures from one source is the clearest
-    signal of credential stuffing or brute-force attacks.
-    """
     failed_by_ip: dict[str, list[datetime]] = defaultdict(list)
 
     for entry in logs:
@@ -54,13 +37,6 @@ def detect_bruteforce(logs: list[dict]) -> list[dict]:
 
 
 def detect_blacklist_hits(logs: list[dict], ti_data: dict) -> list[dict]:
-    """
-    Flag requests from IPs present in TI blacklist data.
-
-    Uses TI_MIN_REQUESTS to avoid noise from single-hit scanner probes —
-    a single request from a known bad IP is worth noting but shouldn't
-    generate a HIGH alert on its own.
-    """
     if not ti_data:
         return []
 
@@ -84,11 +60,6 @@ def detect_blacklist_hits(logs: list[dict], ti_data: dict) -> list[dict]:
 
 
 def detect_high_traffic(logs: list[dict], ti_data: dict) -> list[dict]:
-    """
-    Flag IPs that send an unusually high number of requests.
-
-    Excludes IPs already caught by blacklist detection to avoid duplicate alerts.
-    """
     ip_counts = Counter(entry["ip"] for entry in logs)
     already_flagged = set(ti_data.keys())
     alerts = []
@@ -106,14 +77,6 @@ def detect_high_traffic(logs: list[dict], ti_data: dict) -> list[dict]:
 
 
 def detect_traffic_spikes(logs: list[dict]) -> tuple[list[dict], dict]:
-    """
-    Detect time windows with significantly higher-than-average traffic.
-
-    Buckets requests by minute, then flags any bucket exceeding
-    average * SPIKE_MULTIPLIER.
-
-    Returns (alerts, buckets) — buckets are passed to the reporter for charting.
-    """
     buckets: dict[datetime, int] = defaultdict(int)
 
     for entry in logs:
@@ -140,18 +103,7 @@ def detect_traffic_spikes(logs: list[dict]) -> tuple[list[dict], dict]:
     return alerts, dict(buckets)
 
 
-# ---------------------------------------------------------------------------
-# Correlation
-# ---------------------------------------------------------------------------
-
 def correlate(alerts: list[dict]) -> list[dict]:
-    """
-    Upgrade severity when multiple signals converge on the same IP.
-
-    Rule: BRUTEFORCE + BLACKLIST_HIT from the same IP -> CRITICAL.
-    This is a simple example of multi-rule correlation, similar to what
-    SIEM platforms do with correlation searches.
-    """
     bruteforce_ips = {a["ip"] for a in alerts if a["type"] == "BRUTEFORCE"}
     blacklist_ips  = {a["ip"] for a in alerts if a["type"] == "BLACKLIST_HIT"}
     overlap = bruteforce_ips & blacklist_ips
@@ -171,16 +123,7 @@ def correlate(alerts: list[dict]) -> list[dict]:
     return upgraded
 
 
-# ---------------------------------------------------------------------------
-# Orchestrator
-# ---------------------------------------------------------------------------
-
 def run_detections(logs: list[dict], ti_data: dict) -> tuple[list[dict], dict]:
-    """
-    Run all detection rules and return (alerts, metrics).
-
-    metrics["time_buckets"] is passed to the reporter for visualization.
-    """
     alerts: list[dict] = []
 
     alerts.extend(detect_bruteforce(logs))

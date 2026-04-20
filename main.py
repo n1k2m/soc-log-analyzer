@@ -1,7 +1,3 @@
-"""
-SOC Log Analyzer - Entry Point
-"""
-
 import logging
 import sys
 from pathlib import Path
