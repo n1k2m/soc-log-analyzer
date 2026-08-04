@@ -1,15 +1,20 @@
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATA_DIR = Path("data")
 TI_CACHE  = DATA_DIR / "blacklist_cache.json"
 
-# tweak these per environment
 FAILED_LOGIN_THRESHOLD  = 5
 HIGH_REQUEST_THRESHOLD  = 200
 SPIKE_MULTIPLIER        = 3
 TI_MIN_REQUESTS         = 3
 
-TI_API_KEY = ""  # set via env or .env, don't commit
+TI_API_KEY = os.getenv("TI_API_KEY") # put your api key in .env
+if not TI_API_KEY:
+    raise ValueError("TI_API_KEY not set")
 TI_API_URL = "https://api.abuseipdb.com/api/v2/blacklist"
 
 SEVERITY = {
