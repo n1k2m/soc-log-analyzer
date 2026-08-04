@@ -5,11 +5,9 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Matches standard Apache/Nginx access log lines.
-# Groups: ip, time, method, url, status, bytes (bytes optional)
 _LOG_PATTERN = re.compile(
     r'(?P<ip>\S+)'           # client IP
-    r' \S+ \S+'              # ident, auth (usually "-")
+    r' \S+ \S+'              # ident, auth 
     r' \[(?P<time>[^\]]+)\]' # timestamp in brackets
     r' "(?P<method>\S+)'     # HTTP method
     r' (?P<url>\S+)'         # request path
