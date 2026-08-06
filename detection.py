@@ -80,7 +80,6 @@ def detect_traffic_spikes(logs: list[dict]) -> tuple[list[dict], dict]:
     buckets: dict[datetime, int] = defaultdict(int)
 
     for entry in logs:
-        # Truncate to the minute for bucketing
         minute = entry["time"].replace(second=0, microsecond=0)
         buckets[minute] += 1
 
