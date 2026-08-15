@@ -9,6 +9,7 @@ soc-log-analyzer/
 ├── main.py            # Точка входа и оркестрация процессов
 ├── config.py          # Пороговые значения и настройки
 ├── parser_module.py   # Парсер Apache логов
+├── models.py          # Минимальные typed-модели LogEntry и Alert
 ├── ti.py              # Загрузчик Threat Intelligence (cache → API → fallback)
 ├── detection.py       # Правила обнаружения и логика корреляции
 ├── reporter.py        # JSON-отчёт и график активности
@@ -19,6 +20,9 @@ soc-log-analyzer/
 │   ├── report.json
 │   └── activity.png
 ├── requirements.txt
+├── tests/
+│   ├── test_detection.py    # Unit-тесты detection и correlation
+│   └── test_parser.py       # Unit-тесты parser
 ├── .env
 ├── .env.example
 └── .gitignore
@@ -28,11 +32,13 @@ soc-log-analyzer/
 
 | Правило       | Уровень  | Описание                                                        |
 | ------------- | -------- | --------------------------------------------------------------- |
-| Brute Force   | HIGH     | 5+ неудачных попыток входа (401) с одного IP-адреса             |
+| Brute Force   | HIGH     | N неудачных попыток входа (401) с одного IP-адреса внутри заданного временного окна |
 | Blacklist Hit | HIGH     | Запросы от IP-адресов, находящихся в TI-фиде                    |
 | High Traffic  | MEDIUM   | Один IP превышает установленный лимит запросов                  |
-| Traffic Spike | MEDIUM   | Минутный показатель трафика превышает среднее значение в 3 раза |
+| Traffic Spike | MEDIUM   | Минутный показатель трафика превышает среднее значение в заданное число раз |
 | Correlation   | CRITICAL | Brute force + попадание в blacklist от одного IP                |
+
+Для временных бакетов трафика timestamp нормализуется в UTC перед агрегацией и построением графика.
 
 ## Быстрый запуск
 
@@ -51,20 +57,40 @@ python main.py
 * `activity.png` - график количества запросов в минуту
 * `analyzer.log` - лог работы анализатора
 
+## Тесты
+
+Тесты используют стандартный `unittest`, дополнительные зависимости не нужны:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Покрыты ключевые сценарии:
+
+* brute force threshold и time window;
+* несколько независимых IP;
+* blacklist hit и минимальное количество запросов;
+* traffic spike, обычный трафик и пустой input;
+* UTC-нормализация timestamp;
+* parser для корректных, malformed и invalid строк;
+* correlation `BRUTEFORCE + BLACKLIST_HIT → CRITICAL`.
 
 ## Конфигурация
 
 Пороговые значения можно изменить в `config.py`:
 
 ```python
-FAILED_LOGIN_THRESHOLD = 5   # количество ответов 401 перед созданием brute force алерта
-HIGH_REQUEST_THRESHOLD = 200 # количество запросов с одного IP для high traffic
-SPIKE_MULTIPLIER = 3         # во сколько раз выше среднего должен быть всплеск
+FAILED_LOGIN_THRESHOLD = 5        # количество ответов 401 для brute force алерта
+FAILED_LOGIN_WINDOW_MINUTES = 5   # временное окно для brute force detection
+HIGH_REQUEST_THRESHOLD = 200      # количество запросов с одного IP для high traffic
+SPIKE_MULTIPLIER = 3              # во сколько раз выше среднего должен быть всплеск
+TI_MIN_REQUESTS = 3               # минимум запросов для blacklist alert
 ```
 
 **Threat Intelligence:**
 Инструмент сначала проверяет файл `data/blacklist_cache.json`.
-Для использования актуальных данных AbuseIPDB необходимо указать `TI_API_KEY` в `config.py`.
+Для использования актуальных данных AbuseIPDB необходимо указать `TI_API_KEY` в `.env`.
+Если ключ не задан, анализатор пропускает online-загрузку TI.
 
 Полученные данные автоматически сохраняются в кэш.
 
@@ -103,12 +129,3 @@ SPIKE_MULTIPLIER = 3         # во сколько раз выше средне�
   ]
 }
 ```
-
-## Возможные улучшения
-
-* GeoIP-обогащение (MaxMind GeoLite2)
-* Парсер Windows Event Logs (формат EVTX)
-* Поддержка потоковой обработки логов (`tail -f` / Kafka)
-* Веб-интерфейс
-* Интеграция Sigma Rules
-* Unit-тесты

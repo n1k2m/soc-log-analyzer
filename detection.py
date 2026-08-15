@@ -1,86 +1,116 @@
 import logging
 from collections import Counter, defaultdict
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from config import (
     FAILED_LOGIN_THRESHOLD,
+    FAILED_LOGIN_WINDOW_MINUTES,
     HIGH_REQUEST_THRESHOLD,
     SEVERITY,
     SPIKE_MULTIPLIER,
     TI_MIN_REQUESTS,
 )
+from models import Alert, LogEntry
 
 log = logging.getLogger(__name__)
 
+CRITICAL_CORRELATION_RULES = (
+    ("BRUTEFORCE", "BLACKLIST_HIT"),
+)
 
-def detect_bruteforce(logs: list[dict]) -> list[dict]:
+
+def _to_utc(timestamp: datetime) -> datetime:
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc)
+
+
+def detect_bruteforce(
+    logs: list[LogEntry],
+    threshold: int = FAILED_LOGIN_THRESHOLD,
+    window_minutes: int = FAILED_LOGIN_WINDOW_MINUTES,
+) -> list[Alert]:
     failed_by_ip: dict[str, list[datetime]] = defaultdict(list)
 
     for entry in logs:
-        if entry["status"] == "401":
-            failed_by_ip[entry["ip"]].append(entry["time"])
+        if entry.status == "401":
+            failed_by_ip[entry.ip].append(entry.time)
 
     alerts = []
+    window = timedelta(minutes=window_minutes)
+
     for ip, timestamps in failed_by_ip.items():
-        if len(timestamps) >= FAILED_LOGIN_THRESHOLD:
-            alerts.append({
-                "type": "BRUTEFORCE",
-                "ip": ip,
-                "failed_attempts": len(timestamps),
-                "first_seen": str(min(timestamps)),
-                "last_seen": str(max(timestamps)),
-                "severity": SEVERITY["BRUTEFORCE"],
-            })
-            log.debug(f"BRUTEFORCE: {ip} — {len(timestamps)} failed logins")
+        timestamps = sorted(timestamps)
+        left = 0
+
+        for right, timestamp in enumerate(timestamps):
+            while timestamp - timestamps[left] > window:
+                left += 1
+
+            attempts = right - left + 1
+            if attempts >= threshold:
+                first_seen = timestamps[left]
+                last_seen = timestamp
+                alerts.append(Alert(
+                    type="BRUTEFORCE",
+                    ip=ip,
+                    failed_attempts=attempts,
+                    first_seen=str(first_seen),
+                    last_seen=str(last_seen),
+                    severity=SEVERITY["BRUTEFORCE"],
+                ))
+                log.debug(f"BRUTEFORCE: {ip} - {attempts} failed logins in {window_minutes}m")
+                break
 
     return alerts
 
 
-def detect_blacklist_hits(logs: list[dict], ti_data: dict) -> list[dict]:
+def detect_blacklist_hits(logs: list[LogEntry], ti_data: dict) -> list[Alert]:
     if not ti_data:
         return []
 
-    ip_counts = Counter(entry["ip"] for entry in logs)
+    ip_counts = Counter(entry.ip for entry in logs)
     alerts = []
 
     for ip, count in ip_counts.items():
         if ip in ti_data and count >= TI_MIN_REQUESTS:
             ti_info = ti_data[ip]
-            alerts.append({
-                "type": "BLACKLIST_HIT",
-                "ip": ip,
-                "requests": count,
-                "abuse_confidence": ti_info.get("abuseConfidenceScore", "n/a"),
-                "country": ti_info.get("countryCode", "n/a"),
-                "severity": SEVERITY["BLACKLIST_HIT"],
-            })
+            alerts.append(Alert(
+                type="BLACKLIST_HIT",
+                ip=ip,
+                requests=count,
+                abuse_confidence=ti_info.get("abuseConfidenceScore", "n/a"),
+                country=ti_info.get("countryCode", "n/a"),
+                severity=SEVERITY["BLACKLIST_HIT"],
+            ))
             log.debug(f"BLACKLIST_HIT: {ip} ({count} requests)")
 
     return alerts
 
 
-def detect_high_traffic(logs: list[dict], ti_data: dict) -> list[dict]:
-    ip_counts = Counter(entry["ip"] for entry in logs)
+def detect_high_traffic(logs: list[LogEntry], ti_data: dict) -> list[Alert]:
+    ip_counts = Counter(entry.ip for entry in logs)
     already_flagged = set(ti_data.keys())
     alerts = []
 
     for ip, count in ip_counts.items():
         if ip not in already_flagged and count > HIGH_REQUEST_THRESHOLD:
-            alerts.append({
-                "type": "HIGH_TRAFFIC",
-                "ip": ip,
-                "requests": count,
-                "severity": SEVERITY["HIGH_TRAFFIC"],
-            })
+            alerts.append(Alert(
+                type="HIGH_TRAFFIC",
+                ip=ip,
+                requests=count,
+                severity=SEVERITY["HIGH_TRAFFIC"],
+            ))
 
     return alerts
 
 
-def detect_traffic_spikes(logs: list[dict]) -> tuple[list[dict], dict]:
+def detect_traffic_spikes(logs: list[LogEntry]) -> tuple[list[Alert], dict]:
     buckets: dict[datetime, int] = defaultdict(int)
 
     for entry in logs:
-        minute = entry["time"].replace(second=0, microsecond=0)
+        minute = _to_utc(entry.time).replace(second=0, microsecond=0)
         buckets[minute] += 1
 
     if not buckets:
@@ -91,39 +121,42 @@ def detect_traffic_spikes(logs: list[dict]) -> tuple[list[dict], dict]:
 
     for timestamp, count in buckets.items():
         if count > avg * SPIKE_MULTIPLIER:
-            alerts.append({
-                "type": "TRAFFIC_SPIKE",
-                "time": str(timestamp),
-                "requests_in_window": count,
-                "average_requests": round(avg, 2),
-                "severity": SEVERITY["TRAFFIC_SPIKE"],
-            })
+            alerts.append(Alert(
+                type="TRAFFIC_SPIKE",
+                time=str(timestamp),
+                requests_in_window=count,
+                average_requests=round(avg, 2),
+                severity=SEVERITY["TRAFFIC_SPIKE"],
+            ))
 
     return alerts, dict(buckets)
 
 
-def correlate(alerts: list[dict]) -> list[dict]:
-    bruteforce_ips = {a["ip"] for a in alerts if a["type"] == "BRUTEFORCE"}
-    blacklist_ips  = {a["ip"] for a in alerts if a["type"] == "BLACKLIST_HIT"}
-    overlap = bruteforce_ips & blacklist_ips
+def correlate(alerts: list[Alert]) -> list[Alert]:
+    critical_ips: set[str] = set()
 
-    if not overlap:
+    for first_type, second_type in CRITICAL_CORRELATION_RULES:
+        first_ips = {a.ip for a in alerts if a.type == first_type and a.ip}
+        second_ips = {a.ip for a in alerts if a.type == second_type and a.ip}
+        critical_ips.update(first_ips & second_ips)
+
+    if not critical_ips:
         return alerts
 
     upgraded = []
     for alert in alerts:
-        if alert.get("ip") in overlap:
-            alert = {**alert, "severity": "CRITICAL", "correlated": True}
+        if alert.ip in critical_ips:
+            alert = replace(alert, severity="CRITICAL", correlated=True)
         upgraded.append(alert)
 
-    for ip in overlap:
+    for ip in critical_ips:
         log.warning(f"CORRELATION: {ip} triggered both BRUTEFORCE and BLACKLIST_HIT -> CRITICAL")
 
     return upgraded
 
 
-def run_detections(logs: list[dict], ti_data: dict) -> tuple[list[dict], dict]:
-    alerts: list[dict] = []
+def run_detections(logs: list[LogEntry], ti_data: dict) -> tuple[list[Alert], dict]:
+    alerts: list[Alert] = []
 
     alerts.extend(detect_bruteforce(logs))
     alerts.extend(detect_blacklist_hits(logs, ti_data))

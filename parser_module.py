@@ -3,6 +3,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from models import LogEntry
+
 log = logging.getLogger(__name__)
 
 _LOG_PATTERN = re.compile(
@@ -13,13 +15,13 @@ _LOG_PATTERN = re.compile(
     r' (?P<url>\S+)'         # request path
     r' \S+"'                 # HTTP version
     r' (?P<status>\d{3})'    # response status code
-    r'(?:\s+(?P<bytes>\d+))?' # response size (optional)
+    r'(?:\s+(?P<bytes>\d+|-))?' # response size
 )
 
 _TIME_FORMAT = "%d/%b/%Y:%H:%M:%S %z"
 
 
-def _parse_line(line: str) -> dict | None:
+def _parse_line(line: str) -> LogEntry | None:
     match = _LOG_PATTERN.match(line.strip())
     if not match:
         return None
@@ -32,11 +34,17 @@ def _parse_line(line: str) -> dict | None:
         log.debug(f"Could not parse timestamp: {entry['time']!r}")
         return None
 
-    entry["bytes"] = int(entry["bytes"]) if entry["bytes"] else 0
-    return entry
+    return LogEntry(
+        ip=entry["ip"],
+        time=entry["time"],
+        method=entry["method"],
+        url=entry["url"],
+        status=entry["status"],
+        bytes=int(entry["bytes"]) if entry["bytes"] and entry["bytes"] != "-" else 0,
+    )
 
 
-def load_logs(path: str) -> list[dict]:
+def load_logs(path: str) -> list[LogEntry]:
     file_path = Path(path)
     if not file_path.exists():
         log.error(f"Log file not found: {path}")

@@ -40,7 +40,7 @@ def main():
 
     log.info(f"Detection complete. Total alerts: {len(alerts)}")
     for severity in ("CRITICAL", "HIGH", "MEDIUM"):
-        count = sum(1 for a in alerts if a.get("severity") == severity)
+        count = sum(1 for a in alerts if a.severity == severity)
         if count:
             log.info(f"  {severity}: {count}")
 
